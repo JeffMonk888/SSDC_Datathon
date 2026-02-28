@@ -1,6 +1,6 @@
 # Personal Finance ML Pattern Report
 
-Generated: 2026-02-28T16:28:28.952743+00:00
+Generated: 2026-02-28T16:56:12.314799+00:00
 
 ## Dataset
 - Rows: 16241
@@ -8,14 +8,14 @@ Generated: 2026-02-28T16:28:28.952743+00:00
 - Modeling rows after filtering: 16241
 - Target: `PWNETWPG`
 
-## Supervised Model (Ridge Regression)
+## Phase 1: Supervised Model (Ridge Regression on PWNETWPG)
 - Best alpha (5-fold CV): 25.0
 - Train R2: 0.7037
 - Test R2: 0.6939
 - Test MAE: 605004.64
 - Test RMSE: 1008756.62
 
-## Financial Resilience Score (FRS)
+## Phase 2: Financial Resilience Score (FRS)
 - Design: robust-scaled weighted score using liquidity, savings gap, equity ratio, income, DTI, and credit card debt.
 - Baseline tier thresholds: q20=38.72, q50=48.05, q80=63.84
 - Baseline tier shares: At Risk=20.00%, Coping=30.00%, Stable=30.00%, Thriving=20.00%
