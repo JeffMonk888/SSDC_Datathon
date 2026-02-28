@@ -1,0 +1,4 @@
+scenario,mean_frs_post,mean_frs_drop,median_frs_drop,pct_below_baseline_fragility_cutoff,most_impacted_cluster,most_impacted_cluster_mean_drop,share_at_risk_post,share_coping_post,share_stable_post,share_thriving_post
+rate_hike_200bp,50.893736,0.13704,0.00778,0.204852,0,0.472372,0.204852,0.297888,0.297888,0.199372
+income_shock_20pct,50.955969,0.074807,0.351246,0.221107,0,1.609675,0.221107,0.297026,0.269503,0.212364
+housing_shock_15pct,50.745952,0.284824,0.0,0.212302,0,0.855477,0.212302,0.292778,0.295671,0.199249

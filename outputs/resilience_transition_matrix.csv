@@ -1,0 +1,49 @@
+baseline_tier,scenario_tier,count,share_within_baseline_tier,scenario
+At Risk,At Risk,3249,1.0,rate_hike_200bp
+At Risk,Coping,0,0.0,rate_hike_200bp
+At Risk,Stable,0,0.0,rate_hike_200bp
+At Risk,Thriving,0,0.0,rate_hike_200bp
+Coping,At Risk,78,0.01600985221674877,rate_hike_200bp
+Coping,Coping,4794,0.9839901477832512,rate_hike_200bp
+Coping,Stable,0,0.0,rate_hike_200bp
+Coping,Thriving,0,0.0,rate_hike_200bp
+Stable,At Risk,0,0.0,rate_hike_200bp
+Stable,Coping,44,0.0090311986863711,rate_hike_200bp
+Stable,Stable,4828,0.9909688013136289,rate_hike_200bp
+Stable,Thriving,0,0.0,rate_hike_200bp
+Thriving,At Risk,0,0.0,rate_hike_200bp
+Thriving,Coping,0,0.0,rate_hike_200bp
+Thriving,Stable,10,0.003078817733990148,rate_hike_200bp
+Thriving,Thriving,3238,0.9969211822660099,rate_hike_200bp
+At Risk,At Risk,3241,0.9975377039088951,income_shock_20pct
+At Risk,Coping,8,0.0024622960911049553,income_shock_20pct
+At Risk,Stable,0,0.0,income_shock_20pct
+At Risk,Thriving,0,0.0,income_shock_20pct
+Coping,At Risk,350,0.07183908045977011,income_shock_20pct
+Coping,Coping,4459,0.9152298850574713,income_shock_20pct
+Coping,Stable,63,0.01293103448275862,income_shock_20pct
+Coping,Thriving,0,0.0,income_shock_20pct
+Stable,At Risk,0,0.0,income_shock_20pct
+Stable,Coping,357,0.07327586206896551,income_shock_20pct
+Stable,Stable,4262,0.8747947454844006,income_shock_20pct
+Stable,Thriving,253,0.051929392446633825,income_shock_20pct
+Thriving,At Risk,0,0.0,income_shock_20pct
+Thriving,Coping,0,0.0,income_shock_20pct
+Thriving,Stable,52,0.01600985221674877,income_shock_20pct
+Thriving,Thriving,3196,0.9839901477832512,income_shock_20pct
+At Risk,At Risk,3249,1.0,housing_shock_15pct
+At Risk,Coping,0,0.0,housing_shock_15pct
+At Risk,Stable,0,0.0,housing_shock_15pct
+At Risk,Thriving,0,0.0,housing_shock_15pct
+Coping,At Risk,199,0.04084564860426929,housing_shock_15pct
+Coping,Coping,4673,0.9591543513957307,housing_shock_15pct
+Coping,Stable,0,0.0,housing_shock_15pct
+Coping,Thriving,0,0.0,housing_shock_15pct
+Stable,At Risk,0,0.0,housing_shock_15pct
+Stable,Coping,82,0.01683087027914614,housing_shock_15pct
+Stable,Stable,4790,0.9831691297208539,housing_shock_15pct
+Stable,Thriving,0,0.0,housing_shock_15pct
+Thriving,At Risk,0,0.0,housing_shock_15pct
+Thriving,Coping,0,0.0,housing_shock_15pct
+Thriving,Stable,12,0.003694581280788177,housing_shock_15pct
+Thriving,Thriving,3236,0.9963054187192119,housing_shock_15pct

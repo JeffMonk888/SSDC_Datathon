@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-02-28T15:52:51.892129+00:00",
+  "generated_utc": "2026-02-28T16:28:28.952743+00:00",
   "dataset": {
     "rows_total": 16241,
     "columns_total": 19,
@@ -70,5 +70,113 @@
       "PWNETWPG"
     ],
     "top_anomalies_exported": 30
+  },
+  "resilience": {
+    "score_name": "Financial Resilience Score (FRS)",
+    "weights": {
+      "positive": {
+        "LIQUIDITY_TO_INCOME": 0.3,
+        "SAVINGS_GAP": 0.2,
+        "HOME_EQUITY_TO_VALUE": 0.2,
+        "PEFATINC": 0.15
+      },
+      "negative": {
+        "DEBT_TO_INCOME": 0.1,
+        "PWDSTCRD": 0.05
+      }
+    },
+    "tier_thresholds": {
+      "q20": 38.71899952002427,
+      "q50": 48.0463028282321,
+      "q80": 63.83918062766965
+    },
+    "tier_counts": {
+      "At Risk": 3249,
+      "Coping": 4872,
+      "Stable": 4872,
+      "Thriving": 3248
+    },
+    "tier_shares": {
+      "At Risk": 0.20004925805061266,
+      "Coping": 0.29998152823102026,
+      "Stable": 0.29998152823102026,
+      "Thriving": 0.19998768548734683
+    },
+    "validation": {
+      "corr_frs_vs_net_worth": 0.4156525367935269,
+      "corr_frs_vs_mahalanobis_sq": 0.3169209479063887,
+      "frs_only_regression": {
+        "n": 16241,
+        "intercept": -1097623.2459499477,
+        "slope": 50984.48728756342,
+        "r2": 0.1727670313428945
+      }
+    },
+    "bootstrap_stability": {
+      "iterations": 200,
+      "threshold_mean": {
+        "q20": 38.72782898520095,
+        "q50": 48.05565067550413,
+        "q80": 63.84272773170204
+      },
+      "threshold_std": {
+        "q20": 0.18343437702765578,
+        "q50": 0.12337720302388275,
+        "q80": 0.2732469847719722
+      },
+      "tier_share_mean": {
+        "At Risk": 0.20008066005787825,
+        "Coping": 0.29997906532848956,
+        "Stable": 0.2999812203682039,
+        "Thriving": 0.19995905424542826
+      },
+      "tier_share_std": {
+        "At Risk": 4.659883098372549e-05,
+        "Coping": 6.924446243846028e-05,
+        "Stable": 6.859694527226838e-05,
+        "Thriving": 4.69602689029509e-05
+      }
+    },
+    "scenario_summary": [
+      {
+        "scenario": "rate_hike_200bp",
+        "mean_frs_post": 50.89373563454402,
+        "mean_frs_drop": 0.13704026584684587,
+        "median_frs_drop": 0.007780447634118559,
+        "pct_below_baseline_fragility_cutoff": 0.20485191798534572,
+        "most_impacted_cluster": 0,
+        "most_impacted_cluster_mean_drop": 0.47237186270102066,
+        "share_at_risk_post": 0.20485191798534572,
+        "share_coping_post": 0.2978880610799828,
+        "share_stable_post": 0.2978880610799828,
+        "share_thriving_post": 0.19937195985468875
+      },
+      {
+        "scenario": "income_shock_20pct",
+        "mean_frs_post": 50.95596866392301,
+        "mean_frs_drop": 0.07480723646785127,
+        "median_frs_drop": 0.35124612510234243,
+        "pct_below_baseline_fragility_cutoff": 0.22110707468751925,
+        "most_impacted_cluster": 0,
+        "most_impacted_cluster_mean_drop": 1.6096748206393365,
+        "share_at_risk_post": 0.22110707468751925,
+        "share_coping_post": 0.29702604519426146,
+        "share_stable_post": 0.26950310941444494,
+        "share_thriving_post": 0.2123637707037744
+      },
+      {
+        "scenario": "housing_shock_15pct",
+        "mean_frs_post": 50.74595189690816,
+        "mean_frs_drop": 0.2848240034827034,
+        "median_frs_drop": 0.0,
+        "pct_below_baseline_fragility_cutoff": 0.2123021981405086,
+        "most_impacted_cluster": 0,
+        "most_impacted_cluster_mean_drop": 0.8554769221819163,
+        "share_at_risk_post": 0.2123021981405086,
+        "share_coping_post": 0.2927775383289206,
+        "share_stable_post": 0.29567144880241364,
+        "share_thriving_post": 0.19924881472815714
+      }
+    ]
   }
 }
