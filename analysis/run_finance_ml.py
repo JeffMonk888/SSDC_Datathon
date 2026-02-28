@@ -9,7 +9,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -385,11 +385,233 @@ def summarize_feature_name(feature: str, readable_map: Dict[str, str], engineere
     return readable_map.get(feature, feature)
 
 
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    clipped = np.clip(x, -40, 40)
+    return 1.0 / (1.0 + np.exp(-clipped))
+
+
+def fit_resilience_component_specs(df: pd.DataFrame, component_cols: Sequence[str]) -> Dict[str, Dict[str, float]]:
+    specs: Dict[str, Dict[str, float]] = {}
+    for col in component_cols:
+        raw = pd.to_numeric(df[col], errors="coerce") if col in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
+        if raw.notna().sum() == 0:
+            specs[col] = {"lower": np.nan, "upper": np.nan, "median": 0.0, "iqr": 1.0, "fill": 0.0}
+            continue
+
+        lower = float(raw.quantile(0.01))
+        upper = float(raw.quantile(0.99))
+        clipped = raw.clip(lower=lower, upper=upper)
+
+        median = float(clipped.median()) if clipped.notna().sum() > 0 else 0.0
+        q1 = float(clipped.quantile(0.25)) if clipped.notna().sum() > 0 else 0.0
+        q3 = float(clipped.quantile(0.75)) if clipped.notna().sum() > 0 else 0.0
+        iqr = q3 - q1
+        if not np.isfinite(iqr) or iqr == 0:
+            iqr = 1.0
+        fill = median if np.isfinite(median) else 0.0
+        specs[col] = {"lower": lower, "upper": upper, "median": median, "iqr": iqr, "fill": fill}
+
+    return specs
+
+
+def transform_component_with_spec(series: pd.Series, spec: Dict[str, float]) -> Tuple[pd.Series, pd.Series]:
+    s = pd.to_numeric(series, errors="coerce")
+    lower = spec.get("lower", np.nan)
+    upper = spec.get("upper", np.nan)
+    if np.isfinite(lower):
+        s = s.clip(lower=lower)
+    if np.isfinite(upper):
+        s = s.clip(upper=upper)
+
+    fill_value = spec.get("fill", 0.0)
+    s = s.fillna(fill_value)
+
+    median = spec.get("median", 0.0)
+    iqr = spec.get("iqr", 1.0)
+    if not np.isfinite(iqr) or iqr == 0:
+        iqr = 1.0
+    z = (s - median) / iqr
+    return s.astype(float), z.astype(float)
+
+
+def compute_resilience_score(
+    df: pd.DataFrame,
+    specs: Dict[str, Dict[str, float]],
+    positive_weights: Dict[str, float],
+    negative_weights: Dict[str, float],
+) -> pd.DataFrame:
+    out = pd.DataFrame(index=df.index)
+    linear = np.zeros(len(df), dtype=float)
+
+    # Keep transformed component values and robust z-scores for auditability.
+    for feature, weight in positive_weights.items():
+        raw = df[feature] if feature in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
+        component, z = transform_component_with_spec(raw, specs[feature])
+        out[f"FRS_COMP_{feature}"] = component
+        out[f"FRS_Z_{feature}"] = z
+        linear += weight * z.to_numpy()
+
+    for feature, weight in negative_weights.items():
+        raw = df[feature] if feature in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
+        component, z = transform_component_with_spec(raw, specs[feature])
+        out[f"FRS_COMP_{feature}"] = component
+        out[f"FRS_Z_{feature}"] = z
+        linear -= weight * z.to_numpy()
+
+    out["FRS_LINEAR"] = linear
+    out["FRS_SCORE"] = 100.0 * sigmoid(linear)
+    return out
+
+
+def derive_tier_thresholds(scores: pd.Series) -> Dict[str, float]:
+    q20 = float(scores.quantile(0.20))
+    q50 = float(scores.quantile(0.50))
+    q80 = float(scores.quantile(0.80))
+    return {"q20": q20, "q50": q50, "q80": q80}
+
+
+def assign_resilience_tiers(scores: pd.Series, thresholds: Dict[str, float]) -> pd.Series:
+    bins = [-np.inf, thresholds["q20"], thresholds["q50"], thresholds["q80"], np.inf]
+    labels = ["At Risk", "Coping", "Stable", "Thriving"]
+    tiers = pd.cut(scores, bins=bins, labels=labels, include_lowest=True)
+    return tiers.astype("string").fillna("Unknown")
+
+
+def apply_resilience_scenario(
+    base_df: pd.DataFrame,
+    scenario_kind: str,
+    *,
+    rate_delta: float = 0.02,
+    rate_kappa: float = 5.0,
+    income_shock: float = 0.20,
+    housing_shock: float = 0.15,
+) -> pd.DataFrame:
+    scenario_df = base_df.copy()
+
+    if scenario_kind == "rate_hike":
+        dti_multiplier = 1.0 + (rate_delta * rate_kappa)
+        scenario_df["DEBT_TO_INCOME"] = safe_series(scenario_df, "DEBT_TO_INCOME") * dti_multiplier
+        return scenario_df
+
+    if scenario_kind == "income_shock":
+        income_prime = safe_series(scenario_df, "PEFATINC") * (1.0 - income_shock)
+        scenario_df["PEFATINC"] = income_prime
+
+        income_abs = income_prime.abs().replace(0, np.nan)
+        scenario_df["DEBT_TO_INCOME"] = safe_series(scenario_df, "TOTAL_DEBT") / income_abs
+        scenario_df["LIQUIDITY_TO_INCOME"] = safe_series(scenario_df, "LIQUID_ASSETS") / income_abs
+        return scenario_df
+
+    if scenario_kind == "housing_shock":
+        home_value_prime = safe_series(scenario_df, "PWAPRVAL") * (1.0 - housing_shock)
+        scenario_df["PWAPRVAL"] = home_value_prime
+
+        mortgage = safe_series(scenario_df, "PWDPRMOR")
+        home_equity_prime = home_value_prime - mortgage
+        scenario_df["HOME_EQUITY"] = home_equity_prime
+        scenario_df["HOME_EQUITY_TO_VALUE"] = home_equity_prime / home_value_prime.replace(0, np.nan)
+        return scenario_df
+
+    raise ValueError(f"Unknown scenario_kind={scenario_kind}")
+
+
+def build_tier_transition(
+    baseline_tier: pd.Series,
+    scenario_tier: pd.Series,
+    scenario_name: str,
+) -> pd.DataFrame:
+    tier_order = ["At Risk", "Coping", "Stable", "Thriving"]
+    matrix = pd.crosstab(
+        baseline_tier,
+        scenario_tier,
+        dropna=False,
+    ).reindex(index=tier_order, columns=tier_order, fill_value=0)
+    matrix.index.name = "baseline_tier"
+    matrix.columns.name = "scenario_tier"
+
+    transition_long = matrix.stack().rename("count").reset_index()
+    row_sums = matrix.sum(axis=1).replace(0, np.nan)
+    transition_long["share_within_baseline_tier"] = transition_long.apply(
+        lambda r: float(r["count"] / row_sums.loc[r["baseline_tier"]]) if pd.notna(row_sums.loc[r["baseline_tier"]]) else 0.0,
+        axis=1,
+    )
+    transition_long["scenario"] = scenario_name
+    return transition_long
+
+
+def simple_linear_regression_r2(x: pd.Series, y: pd.Series) -> Dict[str, float]:
+    x_num = pd.to_numeric(x, errors="coerce")
+    y_num = pd.to_numeric(y, errors="coerce")
+    mask = x_num.notna() & y_num.notna()
+    if mask.sum() < 3:
+        return {"n": int(mask.sum()), "intercept": float("nan"), "slope": float("nan"), "r2": float("nan")}
+
+    x_arr = x_num.loc[mask].to_numpy(dtype=float)
+    y_arr = y_num.loc[mask].to_numpy(dtype=float)
+    X = np.column_stack([np.ones(len(x_arr)), x_arr])
+    beta = np.linalg.lstsq(X, y_arr, rcond=None)[0]
+    y_hat = X @ beta
+    return {
+        "n": int(len(x_arr)),
+        "intercept": float(beta[0]),
+        "slope": float(beta[1]),
+        "r2": r2_score(y_arr, y_hat),
+    }
+
+
+def bootstrap_tier_stability(scores: pd.Series, iterations: int = 200, seed: int = 42) -> Dict[str, Any]:
+    arr = pd.to_numeric(scores, errors="coerce").dropna().to_numpy(dtype=float)
+    if len(arr) == 0:
+        return {
+            "iterations": iterations,
+            "threshold_mean": {"q20": float("nan"), "q50": float("nan"), "q80": float("nan")},
+            "threshold_std": {"q20": float("nan"), "q50": float("nan"), "q80": float("nan")},
+            "tier_share_mean": {"At Risk": float("nan"), "Coping": float("nan"), "Stable": float("nan"), "Thriving": float("nan")},
+            "tier_share_std": {"At Risk": float("nan"), "Coping": float("nan"), "Stable": float("nan"), "Thriving": float("nan")},
+        }
+
+    rng = np.random.default_rng(seed)
+    tier_order = ["At Risk", "Coping", "Stable", "Thriving"]
+
+    threshold_records: List[Dict[str, float]] = []
+    share_records: List[Dict[str, float]] = []
+
+    for _ in range(iterations):
+        sample = arr[rng.integers(0, len(arr), size=len(arr))]
+        q20, q50, q80 = np.quantile(sample, [0.20, 0.50, 0.80])
+        threshold_records.append({"q20": float(q20), "q50": float(q50), "q80": float(q80)})
+
+        tiers = pd.cut(
+            sample,
+            bins=[-np.inf, q20, q50, q80, np.inf],
+            labels=tier_order,
+            include_lowest=True,
+        )
+        shares = pd.Series(tiers).value_counts(normalize=True).reindex(tier_order, fill_value=0.0)
+        share_records.append({k: float(v) for k, v in shares.items()})
+
+    threshold_df = pd.DataFrame(threshold_records)
+    share_df = pd.DataFrame(share_records)
+
+    return {
+        "iterations": iterations,
+        "threshold_mean": {k: float(v) for k, v in threshold_df.mean().items()},
+        "threshold_std": {k: float(v) for k, v in threshold_df.std(ddof=1).items()},
+        "tier_share_mean": {k: float(v) for k, v in share_df.mean().items()},
+        "tier_share_std": {k: float(v) for k, v in share_df.std(ddof=1).items()},
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Offline ML pattern mining for personal finance dataset.")
     parser.add_argument("--xlsx", default="personal_finance_dataset.xlsx", help="Path to source XLSX file.")
     parser.add_argument("--outdir", default="outputs", help="Output directory.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
+    parser.add_argument("--bootstrap_iters", type=int, default=200, help="Bootstrap iterations for resilience stability.")
+    parser.add_argument("--rate_delta", type=float, default=0.02, help="Rate shock in absolute terms (e.g., 0.02 for +200 bps).")
+    parser.add_argument("--rate_kappa", type=float, default=5.0, help="Pass-through sensitivity from rates to DTI.")
+    parser.add_argument("--income_shock", type=float, default=0.20, help="Income shock fraction (e.g., 0.20 for -20%).")
+    parser.add_argument("--housing_shock", type=float, default=0.15, help="Housing price shock fraction (e.g., 0.15 for -15%).")
     args = parser.parse_args()
 
     xlsx_path = Path(args.xlsx).resolve()
@@ -587,6 +809,195 @@ def main() -> None:
     anomaly_table = anomaly_table.sort_values("mahalanobis_sq", ascending=False)
     top_anomalies = anomaly_table.head(30)
 
+    # -----------------------------
+    # Resilience Score (FRS) Engine
+    # -----------------------------
+    resilience_positive_weights = {
+        "LIQUIDITY_TO_INCOME": 0.30,
+        "SAVINGS_GAP": 0.20,
+        "HOME_EQUITY_TO_VALUE": 0.20,
+        "PEFATINC": 0.15,
+    }
+    resilience_negative_weights = {
+        "DEBT_TO_INCOME": 0.10,
+        "PWDSTCRD": 0.05,
+    }
+
+    resilience_component_cols = sorted(
+        set(list(resilience_positive_weights.keys()) + list(resilience_negative_weights.keys()))
+    )
+    resilience_specs = fit_resilience_component_specs(clustered_df, resilience_component_cols)
+    resilience_baseline_df = compute_resilience_score(
+        clustered_df,
+        specs=resilience_specs,
+        positive_weights=resilience_positive_weights,
+        negative_weights=resilience_negative_weights,
+    )
+    frs_baseline = resilience_baseline_df["FRS_SCORE"]
+
+    tier_thresholds = derive_tier_thresholds(frs_baseline)
+    frs_tier_baseline = assign_resilience_tiers(frs_baseline, tier_thresholds)
+
+    clustered_df["FRS_BASELINE"] = frs_baseline
+    clustered_df["FRS_TIER_BASELINE"] = frs_tier_baseline
+
+    tier_order = ["At Risk", "Coping", "Stable", "Thriving"]
+    tier_counts = frs_tier_baseline.value_counts().reindex(tier_order, fill_value=0)
+    tier_shares = (tier_counts / max(1, tier_counts.sum())).astype(float)
+
+    resilience_tier_profile_cols = [
+        "PEFATINC",
+        "PWNETWPG",
+        "TOTAL_DEBT",
+        "LIQUID_ASSETS",
+        "DEBT_TO_INCOME",
+        "LIQUIDITY_TO_INCOME",
+        "HOME_EQUITY_TO_VALUE",
+        "SAVINGS_GAP",
+        "PWDSTCRD",
+    ]
+    resilience_tier_profile_cols = [c for c in resilience_tier_profile_cols if c in clustered_df.columns]
+    resilience_tier_summary = clustered_df.groupby("FRS_TIER_BASELINE")[resilience_tier_profile_cols].median()
+    resilience_tier_summary = resilience_tier_summary.reindex(tier_order)
+    resilience_tier_summary.insert(0, "count", tier_counts)
+    resilience_tier_summary.insert(1, "share", tier_shares.round(4))
+
+    cluster_resilience_base = (
+        clustered_df.groupby("CLUSTER")["FRS_BASELINE"]
+        .agg(["count", "mean", "median"])
+        .rename(columns={"mean": "frs_mean", "median": "frs_median"})
+    )
+    cluster_resilience_base["share_dataset"] = (cluster_resilience_base["count"] / cluster_resilience_base["count"].sum()).round(4)
+    tier_share_by_cluster = pd.crosstab(
+        clustered_df["CLUSTER"],
+        clustered_df["FRS_TIER_BASELINE"],
+        normalize="index",
+    ).reindex(columns=tier_order, fill_value=0.0)
+    cluster_resilience_summary = cluster_resilience_base.join(
+        tier_share_by_cluster.add_prefix("tier_share_"),
+        how="left",
+    )
+
+    frs_networth_corr = float(pd.Series(frs_baseline).corr(clustered_df[target_col], method="pearson"))
+    frs_anomaly_corr = float(pd.Series(frs_baseline).corr(pd.Series(md2, index=clustered_df.index), method="pearson"))
+    frs_regression_diag = simple_linear_regression_r2(frs_baseline, clustered_df[target_col])
+    bootstrap_stats = bootstrap_tier_stability(frs_baseline, iterations=args.bootstrap_iters, seed=args.seed + 73)
+
+    scenario_definitions = [
+        {"name": "rate_hike_200bp", "kind": "rate_hike"},
+        {"name": f"income_shock_{int(round(args.income_shock * 100))}pct", "kind": "income_shock"},
+        {"name": f"housing_shock_{int(round(args.housing_shock * 100))}pct", "kind": "housing_shock"},
+    ]
+
+    resilience_scenario_rows: List[Dict[str, Any]] = []
+    resilience_transition_rows: List[pd.DataFrame] = []
+    resilience_scenario_wide = pd.DataFrame(index=clustered_df.index)
+    resilience_scenario_wide["source_row"] = clustered_df.index + 2
+    resilience_scenario_wide["FRS_BASELINE"] = frs_baseline
+    resilience_scenario_wide["FRS_TIER_BASELINE"] = frs_tier_baseline
+
+    for scenario in scenario_definitions:
+        scenario_name = scenario["name"]
+        scenario_kind = scenario["kind"]
+
+        scenario_df = apply_resilience_scenario(
+            clustered_df,
+            scenario_kind=scenario_kind,
+            rate_delta=args.rate_delta,
+            rate_kappa=args.rate_kappa,
+            income_shock=args.income_shock,
+            housing_shock=args.housing_shock,
+        )
+        scenario_score_df = compute_resilience_score(
+            scenario_df,
+            specs=resilience_specs,
+            positive_weights=resilience_positive_weights,
+            negative_weights=resilience_negative_weights,
+        )
+
+        scenario_score = scenario_score_df["FRS_SCORE"]
+        scenario_tier = assign_resilience_tiers(scenario_score, tier_thresholds)
+        score_drop = frs_baseline - scenario_score
+
+        scenario_score_col = f"FRS_{scenario_name}"
+        scenario_delta_col = f"FRS_DELTA_{scenario_name}"
+        scenario_tier_col = f"FRS_TIER_{scenario_name}"
+
+        resilience_scenario_wide[scenario_score_col] = scenario_score
+        resilience_scenario_wide[scenario_delta_col] = score_drop
+        resilience_scenario_wide[scenario_tier_col] = scenario_tier
+
+        resilience_transition_rows.append(
+            build_tier_transition(frs_tier_baseline, scenario_tier, scenario_name=scenario_name)
+        )
+
+        impacted_cluster = pd.DataFrame({"cluster": clustered_df["CLUSTER"], "score_drop": score_drop}).groupby("cluster")[
+            "score_drop"
+        ].mean()
+        if len(impacted_cluster) > 0:
+            worst_cluster = int(impacted_cluster.idxmax())
+            worst_cluster_drop = float(impacted_cluster.max())
+        else:
+            worst_cluster = -1
+            worst_cluster_drop = float("nan")
+
+        post_tier_shares = scenario_tier.value_counts(normalize=True).reindex(tier_order, fill_value=0.0)
+        resilience_scenario_rows.append(
+            {
+                "scenario": scenario_name,
+                "mean_frs_post": float(scenario_score.mean()),
+                "mean_frs_drop": float(score_drop.mean()),
+                "median_frs_drop": float(score_drop.median()),
+                "pct_below_baseline_fragility_cutoff": float((scenario_score <= tier_thresholds["q20"]).mean()),
+                "most_impacted_cluster": worst_cluster,
+                "most_impacted_cluster_mean_drop": worst_cluster_drop,
+                "share_at_risk_post": float(post_tier_shares.get("At Risk", 0.0)),
+                "share_coping_post": float(post_tier_shares.get("Coping", 0.0)),
+                "share_stable_post": float(post_tier_shares.get("Stable", 0.0)),
+                "share_thriving_post": float(post_tier_shares.get("Thriving", 0.0)),
+            }
+        )
+
+    resilience_scenario_summary = pd.DataFrame(resilience_scenario_rows)
+    resilience_transition_matrix = (
+        pd.concat(resilience_transition_rows, ignore_index=True)
+        if resilience_transition_rows
+        else pd.DataFrame(columns=["baseline_tier", "scenario_tier", "count", "share_within_baseline_tier", "scenario"])
+    )
+
+    resilience_scores = pd.DataFrame(index=clustered_df.index)
+    resilience_scores["source_row"] = clustered_df.index + 2
+    resilience_scores["CLUSTER"] = clustered_df["CLUSTER"]
+    resilience_scores["FRS_BASELINE"] = frs_baseline
+    resilience_scores["FRS_LINEAR_BASELINE"] = resilience_baseline_df["FRS_LINEAR"]
+    resilience_scores["FRS_TIER_BASELINE"] = frs_tier_baseline
+    for component in resilience_component_cols:
+        resilience_scores[f"FRS_COMP_{component}"] = resilience_baseline_df[f"FRS_COMP_{component}"]
+        resilience_scores[f"FRS_Z_{component}"] = resilience_baseline_df[f"FRS_Z_{component}"]
+
+    key_context_cols = [
+        "PEFATINC",
+        "PWNETWPG",
+        "TOTAL_DEBT",
+        "LIQUID_ASSETS",
+        "DEBT_TO_INCOME",
+        "LIQUIDITY_TO_INCOME",
+        "HOME_EQUITY_TO_VALUE",
+        "SAVINGS_GAP",
+    ]
+    for col in key_context_cols:
+        if col in clustered_df.columns:
+            resilience_scores[col] = clustered_df[col]
+
+    resilience_scores = resilience_scores.merge(
+        resilience_scenario_wide,
+        how="left",
+        left_index=True,
+        right_index=True,
+        suffixes=("", "_dup"),
+    )
+    resilience_scores = resilience_scores.loc[:, ~resilience_scores.columns.str.endswith("_dup")]
+
     metrics = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "dataset": {
@@ -619,6 +1030,23 @@ def main() -> None:
             "features": anomaly_features,
             "top_anomalies_exported": 30,
         },
+        "resilience": {
+            "score_name": "Financial Resilience Score (FRS)",
+            "weights": {
+                "positive": resilience_positive_weights,
+                "negative": resilience_negative_weights,
+            },
+            "tier_thresholds": tier_thresholds,
+            "tier_counts": {k: int(v) for k, v in tier_counts.items()},
+            "tier_shares": {k: float(v) for k, v in tier_shares.items()},
+            "validation": {
+                "corr_frs_vs_net_worth": frs_networth_corr,
+                "corr_frs_vs_mahalanobis_sq": frs_anomaly_corr,
+                "frs_only_regression": frs_regression_diag,
+            },
+            "bootstrap_stability": bootstrap_stats,
+            "scenario_summary": resilience_scenario_rows,
+        },
     }
 
     top_pos = coeff_df.sort_values("beta_std", ascending=False).head(10)[
@@ -645,6 +1073,24 @@ def main() -> None:
         f"- Test R2: {metrics['model']['test_r2']:.4f}",
         f"- Test MAE: {metrics['model']['test_mae']:.2f}",
         f"- Test RMSE: {metrics['model']['test_rmse']:.2f}",
+        "",
+        "## Financial Resilience Score (FRS)",
+        "- Design: robust-scaled weighted score using liquidity, savings gap, equity ratio, income, DTI, and credit card debt.",
+        f"- Baseline tier thresholds: q20={tier_thresholds['q20']:.2f}, q50={tier_thresholds['q50']:.2f}, q80={tier_thresholds['q80']:.2f}",
+        f"- Baseline tier shares: At Risk={tier_shares['At Risk']:.2%}, Coping={tier_shares['Coping']:.2%}, Stable={tier_shares['Stable']:.2%}, Thriving={tier_shares['Thriving']:.2%}",
+        f"- Corr(FRS, Net Worth): {frs_networth_corr:.4f}",
+        f"- Corr(FRS, Anomaly Distance): {frs_anomaly_corr:.4f}",
+        f"- FRS-only Net Worth R2: {frs_regression_diag['r2']:.4f}",
+        "",
+        "Resilience tier median profile:",
+        "```text",
+        resilience_tier_summary.round(2).to_string(),
+        "```",
+        "",
+        "Stress scenario impacts:",
+        "```text",
+        resilience_scenario_summary.round(4).to_string(index=False),
+        "```",
         "",
         "Top positive factors (higher value tends to increase predicted net worth):",
         "```text",
@@ -674,6 +1120,12 @@ def main() -> None:
         "- `factor_loadings.csv`",
         "- `cluster_profiles.csv`",
         "- `anomalies.csv`",
+        "- `resilience_scores.csv`",
+        "- `resilience_tier_summary.csv`",
+        "- `resilience_cluster_summary.csv`",
+        "- `resilience_scenario_summary.csv`",
+        "- `resilience_transition_matrix.csv`",
+        "- `resilience_bootstrap_stability.json`",
         "- `metrics.json`",
         "- `analysis_summary.md`",
     ]
@@ -685,6 +1137,15 @@ def main() -> None:
     coeff_df.to_csv(outdir / "factor_loadings.csv", index=False)
     cluster_profiles.round(4).to_csv(outdir / "cluster_profiles.csv")
     top_anomalies.to_csv(outdir / "anomalies.csv", index=False)
+    resilience_scores.to_csv(outdir / "resilience_scores.csv", index=False)
+    resilience_tier_summary.round(4).to_csv(outdir / "resilience_tier_summary.csv")
+    cluster_resilience_summary.round(4).to_csv(outdir / "resilience_cluster_summary.csv")
+    resilience_scenario_summary.round(6).to_csv(outdir / "resilience_scenario_summary.csv", index=False)
+    resilience_transition_matrix.to_csv(outdir / "resilience_transition_matrix.csv", index=False)
+    (outdir / "resilience_bootstrap_stability.json").write_text(
+        json.dumps(bootstrap_stats, indent=2),
+        encoding="utf-8",
+    )
     (outdir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     (outdir / "analysis_summary.md").write_text("\n".join(summary_lines), encoding="utf-8")
     meta_df.to_csv(outdir / "dictionary_cleaned.csv", index=False)

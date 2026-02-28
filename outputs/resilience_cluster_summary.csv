@@ -1,0 +1,3 @@
+CLUSTER,count,frs_mean,frs_median,share_dataset,tier_share_At Risk,tier_share_Coping,tier_share_Stable,tier_share_Thriving
+0,2982,37.1274,36.0282,0.1836,0.5949,0.2243,0.1392,0.0416
+1,13259,54.1577,50.0748,0.8164,0.1112,0.317,0.3361,0.2356
