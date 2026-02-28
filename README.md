@@ -52,6 +52,12 @@ The script writes these files to `outputs/`:
 - `anomalies.csv`
 - `engineered_dataset_with_cluster.csv`
 - `dictionary_cleaned.csv`
+- `resilience_scores.csv`
+- `resilience_tier_summary.csv`
+- `resilience_cluster_summary.csv`
+- `resilience_scenario_summary.csv`
+- `resilience_transition_matrix.csv`
+- `resilience_bootstrap_stability.json`
 
 ## Notes
 
