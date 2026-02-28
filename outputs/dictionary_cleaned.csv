@@ -1,0 +1,20 @@
+Variable Name,Readable Name,Description,Type,Values/Ranges,Notes
+PAGEMIEG,Age Group,Age of major income earner (grouped),Categorical,"1=Under 25, 2=25-34, 3=35-44, 4=45-54, 5=55-64, 6=65-79, 7=80+",Focus on groups 1-4 for this challenge
+PATTCRU,Credit Card Payment,Credit card payment behavior (usual),Categorical,"1=<Minimum, 2=Minimum, 3=More than min but <full, 4=Full amount, 5=Not used, 6=Valid skip",4 means Good financial health
+PATTSITC,COVID Financial Impact,Change in financial situation since COVID-19,Categorical,"1=Improved, 2=Worsened, 3=Stayed same",
+PATTSKP,Skipped Payments,Skipped/delayed non-mortgage payment in last 12 months,Binary,"1=Yes, 2=No",
+PEDUCMIE,Education Level,Highest education of major income earner,Categorical,"1=<High school, 2=High school, 3=Post-secondary non-university, 4=University, 9=Not stated",
+PEFATINC,After-Tax Income,Annual after-tax income,Continuous,-$2.7M to $2.0M,
+PFMTYPG,Family Type,Composition of family unit,Categorical,"1=Single, 2=Couple no kids, 3=Couple/lone parent with kids, 4=Other, 9=Not stated",
+PFTENUR,Home Ownership,Principal residence ownership status,Categorical,"1=Own outright, 2=Own with mortgage, 3=Do not own (rent)",Major financial stability indicator
+PLFFPTME,Work Status 2022,Whether worked full-time or part-time in 2022,Categorical,"1=Mostly full-time, 2=Mostly part-time, 3=Did not work, 6=Valid skip, 9=Not stated",
+PNBEARG,Number of Earners,Number of earners aged 15+ in family,Categorical,"0=None, 1=One, 2=Two, 3=Three or more, 9=Not stated",
+PPVRES,Province,Province of residence,Categorical,"10=NL, 11=PE, 12=NS, 13=NB, 24=QC, 35=ON, 46=MB, 47=SK, 48=AB, 59=BC",
+PWAPRVAL,Home Value,Value of principal residence,Continuous,$0 to $9.75M,$0 if renting (PFTENUR=3)
+PWASTDEP,Bank Deposits,"Money in banks, non-registered",Continuous,-$18K to $3.3M,
+PWATFS,TFSA Balance,Tax-Free Savings Account balance,Continuous,$0 to $800K,
+PWDPRMOR,Mortgage Debt,Mortgage on principal residence,Continuous,$0 to $2.4M,Only applied if PFTENUR=2
+PWDSLOAN,Student Loan Debt,Total student loan debt,Continuous,$0 to $180K,
+PWDSTCRD,Credit Card Debt,Credit card and installment debt,Continuous,$0 to $140K,
+PWDSTLOC,Line of Credit Debt,Line-or-credit debt (home equity and other),Continuous,$0 to $1.45M,
+PWNETWPG,Net Worth,Total net worth of family unit (ongoing concern basis),Continuous,-$2.4M to $37.8M,Target variable; Assets minus debts
