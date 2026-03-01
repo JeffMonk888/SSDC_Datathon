@@ -1,4 +1,4 @@
-# SSDC Datathon - Personal Finance ML Pipeline
+# SDSS Datathon - Personal Finance ML Pipeline
 
 This repo now contains an offline-capable ML workflow to mine patterns from:
 
